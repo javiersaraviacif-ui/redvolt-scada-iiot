@@ -1,0 +1,291 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  CLIENT
+}
+
+enum OperationalStatus {
+  OPERATIVO
+  EN_MANTENCION
+  FUERA_DE_SERVICIO
+}
+
+enum GatewayStatus {
+  ONLINE
+  OFFLINE
+  DEGRADED
+}
+
+enum VariableDataType {
+  ANALOG
+  DIGITAL
+}
+
+enum AlarmSeverity {
+  WARNING
+  CRITICAL
+}
+
+enum AlarmStatus {
+  ACTIVE
+  ACKNOWLEDGED
+  RESOLVED
+}
+
+enum DocumentCategory {
+  UNILINEAL
+  PLANO_CONTROL
+  BOM
+  CERTIFICADO_CALIBRACION
+  TERMOGRAFIA
+}
+
+enum MaintenanceType {
+  PREVENTIVA
+  CORRECTIVA
+  CALIBRACION
+  MODIFICACION_LOGICA
+}
+
+model Tenant {
+  id           String   @id @default(cuid())
+  name         String
+  rut          String   @unique
+  industry     String
+  contactEmail String
+  phone        String
+  address      String
+  createdAt    DateTime @default(now())
+
+  users              User[]
+  projects           Project[]
+  boards             Board[]
+  telemetryReadings  TelemetryReading[]
+  alarms             AlarmEvent[]
+  technicalDocuments TechnicalDocument[]
+  maintenanceLogs    MaintenanceLog[]
+}
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  fullName     String
+  jobTitle     String
+  role         UserRole @default(CLIENT)
+  tenantId     String?
+  tenant       Tenant?  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  createdAt    DateTime @default(now())
+}
+
+model Project {
+  id          String   @id @default(cuid())
+  tenantId    String
+  tenant      Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  name        String
+  code        String
+  location    String
+  description String
+  createdAt   DateTime @default(now())
+
+  boards Board[]
+
+  @@index([tenantId])
+}
+
+model Board {
+  id                   String            @id @default(cuid())
+  tenantId             String
+  tenant               Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  projectId            String
+  project              Project           @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  name                 String
+  code                 String            @unique
+  normative            String            @default("RIC N°02 / SEC Pliego Técnico")
+  plcModel             String
+  gatewayModel         String
+  operationalStatus    OperationalStatus @default(OPERATIVO)
+  gatewayStatus        GatewayStatus     @default(ONLINE)
+  lastHeartbeat        DateTime          @default(now())
+  latencyMs            Int               @default(18)
+  energyAccumulatedKwh Float             @default(14280.5)
+  tariffClpPerKwh      Float             @default(148.5)
+  createdAt            DateTime          @default(now())
+
+  devices            Device[]
+  sensorVariables    SensorVariable[]
+  virtualVariables   VirtualVariable[]
+  hourMeters         HourMeter[]
+  telemetryReadings  TelemetryReading[]
+  alarms             AlarmEvent[]
+  technicalDocuments TechnicalDocument[]
+  maintenanceLogs    MaintenanceLog[]
+
+  @@index([tenantId, projectId])
+}
+
+model Device {
+  id              String   @id @default(cuid())
+  boardId         String
+  board           Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  name            String
+  protocol        String   @default("MQTT + REST API")
+  apiKey          String   @unique
+  mqttTopicPrefix String
+  ipAddress       String
+  firmware        String
+  lastSeenAt      DateTime @default(now())
+
+  sensorVariables SensorVariable[]
+
+  @@index([boardId])
+}
+
+model SensorVariable {
+  id           String           @id @default(cuid())
+  boardId      String
+  board        Board            @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  deviceId     String
+  device       Device           @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  code         String
+  name         String
+  unit         String
+  category     String
+  dataType     VariableDataType @default(ANALOG)
+  minNormal    Float            @default(0)
+  warnLow      Float?
+  warnHigh     Float?
+  critLow      Float?
+  critHigh     Float?
+  currentValue Float            @default(0)
+  updatedAt    DateTime         @default(now())
+
+  @@unique([boardId, code])
+  @@index([boardId])
+}
+
+model VirtualVariable {
+  id           String   @id @default(cuid())
+  boardId      String
+  board        Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  code         String
+  name         String
+  formula      String
+  unit         String
+  description  String
+  currentValue Float    @default(0)
+  updatedAt    DateTime @default(now())
+
+  @@unique([boardId, code])
+}
+
+model TelemetryReading {
+  id           String   @id @default(cuid())
+  tenantId     String
+  tenant       Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  boardId      String
+  board        Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  variableCode String
+  value        Float
+  timestamp    DateTime @default(now())
+
+  @@index([boardId, variableCode, timestamp(sort: Desc)])
+  @@index([boardId, timestamp(sort: Desc)])
+  @@index([tenantId, timestamp(sort: Desc)])
+}
+
+model HourMeter {
+  id                     String   @id @default(cuid())
+  boardId                String
+  board                  Board    @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  equipmentName          String
+  code                   String
+  accumulatedHours       Float    @default(1850.0)
+  maintenanceTargetHours Float    @default(2500.0)
+  warningHoursThreshold  Float    @default(2200.0)
+  triggerVariableCode    String   @default("I_L1")
+  triggerThreshold       Float    @default(5.0)
+  isRunning              Boolean  @default(true)
+  lastIncrementAt        DateTime @default(now())
+
+  @@index([boardId])
+}
+
+model AlarmEvent {
+  id             String        @id @default(cuid())
+  tenantId       String
+  tenant         Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  boardId        String
+  board          Board         @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  variableCode   String
+  variableName   String
+  severity       AlarmSeverity
+  message        String
+  measuredValue  Float
+  thresholdValue Float
+  unit           String
+  status         AlarmStatus   @default(ACTIVE)
+  triggeredAt    DateTime      @default(now())
+  ackedAt        DateTime?
+  ackedByUserId  String?
+  ackedByName    String?
+
+  @@index([boardId, status, triggeredAt(sort: Desc)])
+  @@index([tenantId, triggeredAt(sort: Desc)])
+}
+
+model TechnicalDocument {
+  id         String           @id @default(cuid())
+  tenantId   String
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  boardId    String
+  board      Board            @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  title      String
+  category   DocumentCategory
+  code       String
+  version    String
+  fileSize   String
+  fileUrl    String
+  summary    String
+  uploadedBy String
+  uploadedAt DateTime         @default(now())
+
+  @@index([boardId])
+}
+
+model MaintenanceLog {
+  id              String          @id @default(cuid())
+  tenantId        String
+  tenant          Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  boardId         String
+  board           Board           @relation(fields: [boardId], references: [id], onDelete: Cascade)
+  performedAt     DateTime        @default(now())
+  technicianName  String
+  maintenanceType MaintenanceType
+  details         String
+  createdAt       DateTime        @default(now())
+
+  @@index([boardId, performedAt(sort: Desc)])
+}
+
+model QuoteRequest {
+  id              String   @id @default(cuid())
+  companyName     String
+  rut             String?
+  contactName     String
+  email           String
+  phone           String
+  serviceCategory String
+  facilityType    String
+  projectDetails  String
+  status          String   @default("RECIBIDA")
+  createdAt       DateTime @default(now())
+}
