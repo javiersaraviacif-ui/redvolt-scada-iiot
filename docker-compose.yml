@@ -1,0 +1,23 @@
+version: "3.9"
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: redvolt-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: redvolt_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - redvolt_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d redvolt_db"]
+      interval: 3s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  redvolt_pgdata:
